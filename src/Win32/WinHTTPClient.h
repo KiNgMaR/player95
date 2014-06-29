@@ -39,7 +39,7 @@ namespace Player95
 
 			HINTERNET m_hSession;
 			std::map<std::wstring, std::map<unsigned short, HINTERNET>> m_hHostConnects; // host + port -> HINTERNET from WinHttpConnect
-			std::map<HINTERNET, PRequest> m_runningRequests;
+			std::map<HINTERNET, PRequest> m_activeRequests;
 			std::mutex m_access;
 
 			static void CALLBACK WinHttpCallback(HINTERNET, DWORD_PTR, DWORD, LPVOID, DWORD);
@@ -77,13 +77,20 @@ namespace Player95
 
 				HINTERNET GetHandle() const { return m_hRequest; }
 
-				void OnNetworkError(DWORD code, const std::wstring& description);
+				void OnRequestSent();
+				void OnHeadersComplete();
 				void OnReadData(DWORD data_length);
 				void OnComplete();
+				void OnNetworkError(DWORD code, const std::wstring& description);
 
 				int GetStatusCode() const;
 				const std::wstring GetStatusText() const;
 				std::string&& ExtractReadBuffer() { return std::move(m_readBuffer); }
+				bool IsCanceled() const { return m_canceled; }
+				int GetLastErrorCode() const { return m_lastErrorCode; }
+				const std::wstring GetLastErrorDescription() const { return m_lastErrorDescription; }
+
+				void Cancel();
 
 			private:
 				HINTERNET m_hConnect;
@@ -100,9 +107,14 @@ namespace Player95
 				int m_httpStatusCode;
 				std::string m_readBuffer;
 
+				bool m_canceled;
+				int m_lastErrorCode;
+				std::wstring m_lastErrorDescription;
+
 				std::function<void()> m_completionHandler;
 
 				void InvokeCompletionHandler();
+				void InternalError();
 			};
 
 			bool CreateRequest(const std::string& url, PRequest& request);

@@ -49,7 +49,7 @@ namespace WinHttpHelpers
 
 		if (::GetLastError() == ERROR_INSUFFICIENT_BUFFER)
 		{
-			// use vector because it's guaranteed to be continous in memory.
+			// use vector because it's guaranteed to be continuous in memory.
 			std::vector<wchar_t> buf(bufSize / sizeof(wchar_t) + 1);
 
 			if (::WinHttpQueryHeaders(hRequest, dwOption, WINHTTP_HEADER_NAME_BY_INDEX, buf.data(), &bufSize, WINHTTP_NO_HEADER_INDEX))
@@ -80,7 +80,7 @@ namespace WinHttpHelpers
 		else if (0 != (tlsErrorCode & WINHTTP_CALLBACK_STATUS_FLAG_CERT_WRONG_USAGE))
 			return L"SSL/TLS certificate's permitted usage flag does not match.";
 		else if (0 != (tlsErrorCode & WINHTTP_CALLBACK_STATUS_FLAG_SECURITY_CHANNEL_ERROR))
-			return L"The application experienced an internal error loading the SSL/TLS libraries.";
+			return L"An internal SSL/TLS protocol error has occured. Please check your connection settings.";
 		else if (tlsErrorCode)
 		{
 			static __declspec(thread) wchar_t buf[64];
@@ -152,13 +152,13 @@ bool WinHTTPClient::GetText(const std::string& url, const std::string& postData,
 		// erase from map:
 		{
 			std::lock_guard<std::mutex> lock(m_access);
-			m_runningRequests.erase(request->GetHandle());
+			m_activeRequests.erase(request->GetHandle());
 		}
 
 		std::wstring statusText = request->GetStatusText();
 		callback(request->GetStatusCode(), request->ExtractReadBuffer());
 
-		// request should get destroyed now.
+		// request should be destroyed now.
 	});
 
 	if (!request->SendRequest())
@@ -166,7 +166,7 @@ bool WinHTTPClient::GetText(const std::string& url, const std::string& postData,
 
 	std::lock_guard<std::mutex> lock(m_access);
 
-	m_runningRequests[request->GetHandle()] = request;
+	m_activeRequests[request->GetHandle()] = request;
 
 	return true;
 }
@@ -256,9 +256,9 @@ bool WinHTTPClient::FindRequest(HINTERNET hRequest, PRequest& request)
 {
 	std::lock_guard<std::mutex> lock(m_access);
 
-	auto it = m_runningRequests.find(hRequest);
+	auto it = m_activeRequests.find(hRequest);
 
-	if (it != m_runningRequests.end())
+	if (it != m_activeRequests.end())
 	{
 		request = it->second;
 
@@ -300,11 +300,11 @@ void CALLBACK WinHTTPClient::WinHttpCallback(HINTERNET hInternet, DWORD_PTR dwCo
 			break; }
 
 		case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
-			::WinHttpReceiveResponse(request->GetHandle(), nullptr); // :TODO: check return
+			request->OnRequestSent();
 			break;
 
 		case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
-			::WinHttpQueryDataAvailable(request->GetHandle(), nullptr); // :TODO: check return
+			request->OnHeadersComplete();
 			break;
 
 		case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
@@ -317,22 +317,57 @@ void CALLBACK WinHTTPClient::WinHttpCallback(HINTERNET hInternet, DWORD_PTR dwCo
 				request->OnComplete();
 			}
 			break;
-#ifdef _DEBUG
-		default: {
-			char buf[30];
-			sprintf_s(buf, 30, "dwInternetStatus = %08x\n", dwInternetStatus);
-			OutputDebugStringA(buf);
-			}
-#endif
+		default:
+			_ASSERT(false);
 		}
+	}
+	else
+	{
+		_ASSERT(false);
 	}
 }
 
 WinHTTPClient::~WinHTTPClient()
 {
+	PRequest request;
+
+	while (true)
+	{
+		// extract one request:
+		{
+			std::lock_guard<std::mutex> lock(m_access);
+
+			if (m_activeRequests.empty())
+				break;
+
+			auto it = m_activeRequests.begin();
+			request = it->second;
+			m_activeRequests.erase(it);
+		}
+
+		// m_access MUST be unlocked before Cancel is invoked
+
+		request->Cancel();
+	}
+
+	m_access.lock();
+
+	for (auto it : m_hHostConnects)
+	{
+		for (auto jt : it.second)
+		{
+			::WinHttpCloseHandle(jt.second);
+		}
+	}
+
+	m_hHostConnects.clear();
+
 	if (m_hSession)
+	{
 		::WinHttpCloseHandle(m_hSession);
-	
+	}
+
+	m_access.unlock();
 }
 
 //
@@ -341,7 +376,7 @@ WinHTTPClient::~WinHTTPClient()
 
 WinHTTPClient::Request::Request(HINTERNET hSession, HINTERNET hConnect) :
 	m_hConnect(hConnect), m_hRequest(0), m_ownsHConnect(hConnect == 0),
-	m_tls(TLS_OFF), m_verb(HTTP_GET)
+	m_tls(TLS_OFF), m_verb(HTTP_GET), m_canceled(false), m_lastErrorCode(0)
 {
 
 }
@@ -410,37 +445,56 @@ bool WinHTTPClient::Request::SendRequest()
 	return true;
 }
 
+void WinHTTPClient::Request::OnRequestSent()
+{
+	// tell WinHttp to begin receiving:
+	if (!::WinHttpReceiveResponse(m_hRequest, nullptr))
+		InternalError();
+}
+
+void WinHTTPClient::Request::OnHeadersComplete()
+{
+	// tell WinHttp to begin reading the response body:
+	if (!::WinHttpQueryDataAvailable(m_hRequest, nullptr))
+		InternalError();
+}
+
 void WinHTTPClient::Request::OnReadData(DWORD data_length)
 {
-	// :TODO: handle error conditions, abort request!
 	// :TODO: other read modes
+	// :TODO: limit max. response size for in-memory buffer
 	DWORD read;
+
+	::SetLastError(0);
 
 	if (data_length > 0)
 	{
 		std::vector<char> temp(data_length);
 
 		if (!::WinHttpReadData(m_hRequest, temp.data(), data_length, &read))
-			return; // :TODO:
+			return InternalError();
 
 		if (read != data_length)
-			return; // :TODO:
+			return InternalError();
 
 		m_readBuffer.append(temp.begin(), temp.begin() + data_length);
 
 		if (!::WinHttpQueryDataAvailable(m_hRequest, nullptr))
-			return; // :TODO:
+			return InternalError();
 	}
 	else
 	{
 		// trigger WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
 		if (!::WinHttpReadData(m_hRequest, NULL, 0, &read))
-			return; // :TODO:
+			return InternalError();
 	}
 }
 
 void WinHTTPClient::Request::OnNetworkError(DWORD code, const std::wstring& description)
 {
+	m_lastErrorCode = code;
+	m_lastErrorDescription = description;
+
 	InvokeCompletionHandler();
 }
 
@@ -451,14 +505,21 @@ void WinHTTPClient::Request::OnComplete()
 
 void WinHTTPClient::Request::InvokeCompletionHandler()
 {
-	m_completionHandler();
+	std::function<void()> callback = m_completionHandler;
 
 	// make sure it's never invoked again.
 	// this is a guarantee to users of this class that we MUST fulfill.
 
 	m_completionHandler = std::function<void()>();
 
-	::WinHttpSetStatusCallback(m_hRequest, nullptr, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS | WINHTTP_CALLBACK_FLAG_SECURE_FAILURE, 0);
+	_ASSERT(callback);
+
+	if (callback)
+	{
+		callback();
+	}
+
+	::WinHttpSetStatusCallback(m_hRequest, nullptr, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0);
 
 	// handles are closed by the destructor.
 }
@@ -481,13 +542,43 @@ const std::wstring WinHTTPClient::Request::GetStatusText() const
 	return status;
 }
 
+void WinHTTPClient::Request::Cancel()
+{
+	m_canceled = true;
+
+	// :TODO: this is not 100% threadsafe:
+	InvokeCompletionHandler();
+
+	if (m_hRequest)
+	{
+		::WinHttpCloseHandle(m_hRequest);
+	}
+
+	m_lastErrorCode = -1;
+	m_lastErrorDescription = L"Request has been canceled!";
+}
+
+void WinHTTPClient::Request::InternalError()
+{
+	DWORD errorCode = ::GetLastError();
+	
+	if (!errorCode)
+		errorCode = ERROR_WINHTTP_INTERNAL_ERROR;
+
+	OnNetworkError(errorCode, Win32::Helpers::ErrorToString(errorCode, L"winhttp.dll"));
+}
+
 WinHTTPClient::Request::~Request()
 {
 	if (m_hRequest)
+	{
 		::WinHttpCloseHandle(m_hRequest);
+	}
 
 	if (m_hConnect && m_ownsHConnect)
+	{
 		::WinHttpCloseHandle(m_hConnect);
+	}
 }
 
 #pragma comment(lib, "Winhttp.lib")
