@@ -29,7 +29,11 @@ namespace WinHttpHelpers
 
 	static bool SetOptionDword(HINTERNET hInternet, DWORD dwOption, DWORD dwValue)
 	{
-		return ::WinHttpSetOption(hInternet, dwOption, &dwValue, sizeof(DWORD)) != FALSE;
+		bool success = ::WinHttpSetOption(hInternet, dwOption, &dwValue, sizeof(DWORD)) != FALSE;
+
+		_ASSERT(success);
+
+		return success;
 	}
 
 	static bool QueryHeadersInt(HINTERNET hRequest, DWORD dwOption, int32_t& result)
@@ -74,7 +78,7 @@ namespace WinHttpHelpers
 		else if (0 != (tlsErrorCode & WINHTTP_CALLBACK_STATUS_FLAG_INVALID_CA))
 			return L"Windows is unfamiliar with the Certificate Authority that generated the server's certificate.";
 		else if (0 != (tlsErrorCode & WINHTTP_CALLBACK_STATUS_FLAG_CERT_CN_INVALID))
-			return L"SSL/TLS certificate common name (host name field) is incorrect.";
+			return L"SSL/TLS certificate common name (host name field) does not match requested URL.";
 		else if (0 != (tlsErrorCode & WINHTTP_CALLBACK_STATUS_FLAG_CERT_DATE_INVALID))
 			return L"SSL/TLS certificate date that was received from the server is bad. The certificate is expired or not yet valid.";
 		else if (0 != (tlsErrorCode & WINHTTP_CALLBACK_STATUS_FLAG_CERT_WRONG_USAGE))
@@ -97,7 +101,7 @@ namespace WinHttpHelpers
 using namespace Player95::Win32;
 
 WinHTTPClient::WinHTTPClient() :
-	m_hSession(0), m_allowInsecureTLS(false)
+	m_hSession(0), m_allowInsecureTLS(false), m_hSessionFinishedEvent(0)
 {
 }
 
@@ -112,6 +116,10 @@ bool WinHTTPClient::Init()
 	if (!m_hSession)
 		return false;
 
+	// enable TLS 1.2
+	WinHttpHelpers::SetOptionDword(m_hSession, WINHTTP_OPTION_SECURE_PROTOCOLS,
+		WINHTTP_FLAG_SECURE_PROTOCOL_SSL3 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_1 | WINHTTP_FLAG_SECURE_PROTOCOL_TLS1_2);
+
 	// go async:
 	
 	DWORD_PTR ctx = reinterpret_cast<DWORD_PTR>(this);
@@ -125,8 +133,13 @@ bool WinHTTPClient::Init()
 		20 * 1000, // DNS
 		10 * 1000, // Connect
 		10 * 1000, // Send
-		20 * 1000 // Receive
+		20 * 1000  // Receive
 	);
+
+	m_hSessionFinishedEvent = ::CreateEvent(nullptr, TRUE, FALSE, nullptr);
+
+	if (!::WinHttpSetOption(m_hSession, WINHTTP_OPTION_UNLOAD_NOTIFY_EVENT, &m_hSessionFinishedEvent, sizeof(HANDLE)))
+		return false;
 
 	return true;
 }
@@ -368,6 +381,12 @@ WinHTTPClient::~WinHTTPClient()
 	}
 
 	m_access.unlock();
+
+	if (m_hSessionFinishedEvent)
+	{
+		// this ensures that pClient in the callback never goes stale.
+		::WaitForSingleObject(m_hSessionFinishedEvent, INFINITE);
+	}
 }
 
 //
@@ -424,6 +443,10 @@ bool WinHTTPClient::Request::SendRequest()
 
 	// we do not endorse redirects:
 	WinHttpHelpers::SetOptionDword(m_hRequest, WINHTTP_OPTION_REDIRECT_POLICY, WINHTTP_OPTION_REDIRECT_POLICY_NEVER);
+	// same for NTLM and Passport auth:
+	WinHttpHelpers::SetOptionDword(m_hRequest, WINHTTP_OPTION_AUTOLOGON_POLICY, WINHTTP_AUTOLOGON_SECURITY_LEVEL_MEDIUM);
+	// just because we're overcautious:
+	WinHttpHelpers::SetOptionDword(m_hRequest, WINHTTP_OPTION_REJECT_USERPWD_IN_URL, 1);
 
 	if (m_tls == TLS_ALLOW_INSECURE)
 	{

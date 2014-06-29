@@ -41,6 +41,7 @@ namespace Player95
 			std::map<std::wstring, std::map<unsigned short, HINTERNET>> m_hHostConnects; // host + port -> HINTERNET from WinHttpConnect
 			std::map<HINTERNET, PRequest> m_activeRequests;
 			std::mutex m_access;
+			HANDLE m_hSessionFinishedEvent;
 
 			static void CALLBACK WinHttpCallback(HINTERNET, DWORD_PTR, DWORD, LPVOID, DWORD);
 
