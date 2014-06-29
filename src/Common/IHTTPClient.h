@@ -21,8 +21,13 @@ namespace Player95
 		public:
 			virtual void UseAuthentication(const std::string& username, const std::string& password) = 0;
 
-			virtual bool GetText(const std::string& url,
-				std::function<void (int http_status_code, const std::string& response_body)> callback) = 0;
+			// usually HTTP libraries need some kind of initialization, this can be performed here:
+			virtual bool Init() = 0;
+
+			virtual bool GetText(const std::string& url, const std::string& postData,
+				std::function<void (int httpStatusCode, const std::string& responseBody)> callback) = 0;
+
+			virtual void AllowInsecureTLS(bool allow) = 0;
 
 			virtual ~IHTTPClient() {}
 		};

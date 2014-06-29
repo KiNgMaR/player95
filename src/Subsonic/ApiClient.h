@@ -34,11 +34,21 @@ namespace Player95
 				SAE_NOT_FOUND         = 70,
 			} APIErrorCode;
 
-			bool pingServer(const std::function<void (bool network_status, bool response_status, APIErrorCode error_code, const std::string& debug_hint)> callback);
+			// these methods return true if the input etc. is fine and the callback will be invoked.
+			// if false is returned, the callback will NOT be invoked.
+
+			// users must not make any assumptions about the thread that the callback is executed in!
+
+			bool PingServer(const std::function<void (bool networkStatus, bool responseStatus, const std::string& debugHint)> callback);
 
 		protected:
 			IHTTPClient* m_httpClient;
 			ServerLoginCredentials m_serverLogin;
+
+			std::string m_restApiVersion;
+			std::string m_restApiClientName;
+
+			std::string ControllerUrl(const std::string& action);
 		};
 	}
 }

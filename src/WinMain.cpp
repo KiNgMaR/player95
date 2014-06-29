@@ -20,18 +20,26 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPWSTR lpCmd
 
 	if (SUCCEEDED(::CoInitialize(nullptr)))
 	{
-		PlayerApplication app(hInstance);
-		PlayerMainWindow mainWindow(&app);
-
-		if (mainWindow.Create())
+		if (!::WinHttpCheckPlatform())
 		{
-			exitCode = app.RunMessageLoop();
+			// shouldn't really happen because all platforms with D2D also have WinHttp, but whatever...
+			::MessageBox(HWND_DESKTOP, L"Unsupported operating system - WinHttp is not available!", L"Error", MB_ICONERROR);
+		}
+		else
+		{
+			PlayerApplication app(hInstance);
+			PlayerMainWindow mainWindow(&app);
+
+			if (mainWindow.Create())
+			{
+				exitCode = app.RunMessageLoop();
+			}
+
+			// mainWindow + app must be destroyed before ComCleanUp is invoked.
 		}
 
-		// mainWindow + app must be destroyed before ComCleanUp is invoked.
+		Direct2DUtility::ComCleanUp();
 	}
-
-	Direct2DUtility::ComCleanUp();
 
 	::CoUninitialize();
 

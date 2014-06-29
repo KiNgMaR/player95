@@ -75,6 +75,9 @@
     <ClCompile Include="..\src\Subsonic\ApiClient.cpp">
       <Filter>Source Files\Subsonic</Filter>
     </ClCompile>
+    <ClCompile Include="..\src\Win32\WinHTTPClient.cpp">
+      <Filter>Source Files\Win32</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\src\stdafx.h">
@@ -103,6 +106,15 @@
     </ClInclude>
     <ClInclude Include="..\src\Subsonic\ServerLoginCredentials.h">
       <Filter>Header Files\Subsonic</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\Win32\WinHTTPClient.h">
+      <Filter>Header Files\Win32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\Win32\ComPtr.h">
+      <Filter>Header Files\Win32</Filter>
+    </ClInclude>
+    <ClInclude Include="..\src\Win32\ErrorToString.h">
+      <Filter>Header Files\Win32</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -194,6 +194,7 @@
     <ClCompile Include="..\src\Win32\PlayerMainWindow_Drawing.cpp" />
     <ClCompile Include="..\src\Win32\PlayerMainWindow_Frames.cpp" />
     <ClCompile Include="..\src\Win32\Window.cpp" />
+    <ClCompile Include="..\src\Win32\WinHTTPClient.cpp" />
     <ClCompile Include="..\src\WinMain.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -202,10 +203,13 @@
     <ClInclude Include="..\src\Subsonic\ApiClient.h" />
     <ClInclude Include="..\src\Subsonic\ServerLoginCredentials.h" />
     <ClInclude Include="..\src\Win32\Application.h" />
+    <ClInclude Include="..\src\Win32\ComPtr.h" />
     <ClInclude Include="..\src\Win32\Direct2DUtility.h" />
     <ClInclude Include="..\src\Win32\PlayerApplication.h" />
     <ClInclude Include="..\src\Win32\PlayerMainWindow.h" />
+    <ClInclude Include="..\src\Win32\ErrorToString.h" />
     <ClInclude Include="..\src\Win32\Window.h" />
+    <ClInclude Include="..\src\Win32\WinHTTPClient.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
