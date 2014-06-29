@@ -71,7 +71,7 @@ namespace Player95
 				void SetAuth(const std::wstring& username, const std::wstring& password) { m_username = username; m_password = password; }
 				void SetPostData(const std::string& postData) { m_postData = postData; }
 
-				void SetCompletionHandler(const std::function<void()> callback) { m_completionHandler = callback; }
+				void SetCompletionHandler(const std::function<void()>& callback) { m_completionHandler = callback; }
 
 				bool SendRequest();
 

@@ -329,10 +329,10 @@ void CALLBACK WinHTTPClient::WinHttpCallback(HINTERNET hInternet, DWORD_PTR dwCo
 
 WinHTTPClient::~WinHTTPClient()
 {
-	PRequest request;
-
 	while (true)
 	{
+		PRequest request;
+
 		// extract one request:
 		{
 			std::lock_guard<std::mutex> lock(m_access);
@@ -552,6 +552,7 @@ void WinHTTPClient::Request::Cancel()
 	if (m_hRequest)
 	{
 		::WinHttpCloseHandle(m_hRequest);
+		m_hRequest = 0;
 	}
 
 	m_lastErrorCode = -1;
